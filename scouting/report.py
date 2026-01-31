@@ -17,6 +17,7 @@ from .features import (
     compute_signature_cluster_cards,
     compute_player_similarity,
 )
+from .insights_enhanced import generate_enhanced_insights
 from .grid_ingest import FetchMeta
 from .matchups import build_matchup_table, compute_our_pick_pools, suggest_counters
 from .normalize import GameRecord
@@ -250,6 +251,18 @@ def build_report(
         "objectives": not coverage.get("has_objectives"),
     }
 
+    # Generate enhanced pro-friendly insights
+    enhanced = generate_enhanced_insights(
+        games=games,
+        per_player=per_player["per_player"],
+        scenarios=scenarios,
+        clusters=clusters,
+        draft_tendencies=draft,
+        counters=counters,
+        randomness=randomness,
+        opponent_name=meta.opponent_name or "Opponent",
+    )
+
     return {
         "meta": asdict(meta),
         "data_coverage": coverage,
@@ -301,4 +314,20 @@ def build_report(
             "decision_tree": decision_tree,
         },
         "missing_data": missing_data,
+        # Enhanced pro-friendly insights (appended, not replacing existing fields)
+        "executive_summary": enhanced["executive_summary"],
+        "enhanced_players": enhanced["enhanced_players"],
+        "enhanced_scenarios": enhanced["enhanced_scenarios"],
+        "draft_guide": enhanced["draft_guide"],
+        "trends": enhanced["trends"],
+        "preparation_checklist": enhanced["preparation_checklist"],
+        # New standout features
+        "the_story": enhanced["the_story"],
+        "side_analysis": enhanced["side_analysis"],
+        "series_momentum": enhanced["series_momentum"],
+        "cheese_picks": enhanced["cheese_picks"],
+        "one_thing_per_player": enhanced["one_thing_per_player"],
+        "pick_decision_tree": enhanced["pick_decision_tree"],
+        "kill_participation_web": enhanced["kill_participation_web"],
+        "game_script": enhanced["game_script"],
     }
