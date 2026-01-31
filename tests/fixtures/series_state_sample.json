@@ -1,0 +1,41 @@
+{
+  "seriesState": {
+    "valid": true,
+    "finished": true,
+    "startedAt": "2025-12-01T12:00:00Z",
+    "finishedAt": "2025-12-01T13:00:00Z",
+    "teams": [
+      {"id": "teamA", "name": "Cloud9", "won": true, "score": 1, "kills": 15, "deaths": 8},
+      {"id": "teamB", "name": "Team Liquid", "won": false, "score": 0, "kills": 8, "deaths": 15}
+    ],
+    "games": [
+      {
+        "sequenceNumber": 1,
+        "teams": [
+          {
+            "id": "teamA",
+            "won": true,
+            "score": 1,
+            "kills": 15,
+            "deaths": 8,
+            "players": [
+              {"id": "p1", "name": "A1", "role": "top", "character": "Gnar", "kills": 4, "deaths": 1},
+              {"id": "p2", "name": "A2", "role": "jg", "character": "Vi", "kills": 3, "deaths": 2}
+            ]
+          },
+          {
+            "id": "teamB",
+            "won": false,
+            "score": 0,
+            "kills": 8,
+            "deaths": 15,
+            "players": [
+              {"id": "p3", "name": "B1", "role": "top", "character": "Ornn", "kills": 1, "deaths": 4},
+              {"id": "p4", "name": "B2", "role": "jg", "character": "Sejuani", "kills": 2, "deaths": 3}
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

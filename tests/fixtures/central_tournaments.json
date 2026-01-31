@@ -1,0 +1,11 @@
+{
+  "data": {
+    "tournaments": {
+      "totalCount": 1,
+      "edges": [
+        {"cursor": "c1", "node": {"id": "tour1", "name": "LCS Spring"}}
+      ],
+      "pageInfo": {"endCursor": "c1", "hasNextPage": false}
+    }
+  }
+}
