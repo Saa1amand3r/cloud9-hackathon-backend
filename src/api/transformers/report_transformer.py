@@ -1,8 +1,11 @@
 """Transform backend report format to frontend expected format."""
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, List
 from ...domain.value_objects.types import Role
+
+logger = logging.getLogger(__name__)
 
 
 def _to_camel_case(snake_str: str) -> str:
@@ -38,6 +41,58 @@ def _get_role_standard(role_str: str | None) -> str:
         "supp": "support",
     }
     return role_map.get(role_lower, "mid")
+
+
+def _normalize_champion_name(name: str) -> str:
+    """Normalize champion names for Riot's Data Dragon API.
+
+    Data Dragon uses specific formats:
+    - No spaces: "MissFortune" not "Miss Fortune"
+    - No apostrophes: "KaiSa" not "Kai'Sa"
+    - Some special cases like "Wukong" not "MonkeyKing"
+    """
+    if not name:
+        return name
+
+    # Special case mappings for champions with different internal names
+    special_cases = {
+        "Renata Glasc": "Renata",
+        "RenataGlasc": "Renata",
+        "Nunu & Willump": "Nunu",
+        "NunuWillump": "Nunu",
+        "Bel'Veth": "Belveth",
+        "BelVeth": "Belveth",
+        "Cho'Gath": "Chogath",
+        "ChoGath": "Chogath",
+        "Dr. Mundo": "DrMundo",
+        "Jarvan IV": "JarvanIV",
+        "Kai'Sa": "Kaisa",
+        "KaiSa": "Kaisa",
+        "Kha'Zix": "Khazix",
+        "KhaZix": "Khazix",
+        "K'Sante": "KSante",
+        "KSante": "KSante",
+        "LeBlanc": "Leblanc",
+        "Lee Sin": "LeeSin",
+        "Master Yi": "MasterYi",
+        "Miss Fortune": "MissFortune",
+        "Rek'Sai": "RekSai",
+        "RekSai": "RekSai",
+        "Tahm Kench": "TahmKench",
+        "Twisted Fate": "TwistedFate",
+        "Vel'Koz": "Velkoz",
+        "VelKoz": "Velkoz",
+        "Xin Zhao": "XinZhao",
+    }
+
+    # Check special cases first
+    if name in special_cases:
+        return special_cases[name]
+
+    # Remove spaces, apostrophes, and periods
+    normalized = name.replace(" ", "").replace("'", "").replace(".", "")
+
+    return normalized
 
 
 def _get_randomness_level(randomness: Dict[str, Any]) -> str:
@@ -90,6 +145,21 @@ def _extract_players_from_report(report: Dict[str, Any]) -> List[Dict[str, Any]]
 def _extract_stable_picks_by_role(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extract stable picks grouped by role."""
     per_player = report.get("per_player", {})
+
+    # Get stable champions data which has actual game stats
+    stable_champions = report.get("insights", {}).get("stable_champions", {}).get("opponent", [])
+
+    # Create a map of champion -> stats
+    champ_stats = {}
+    for champ_data in stable_champions:
+        champ_name = champ_data.get("character")
+        if champ_name:
+            champ_stats[champ_name] = {
+                "games": champ_data.get("games", 0),
+                "wins": champ_data.get("wins", 0),
+                "winrate": champ_data.get("winrate", 0) * 100,  # Convert to percentage
+            }
+
     role_picks: Dict[str, List[Dict[str, Any]]] = {
         "top": [],
         "jungle": [],
@@ -107,22 +177,26 @@ def _extract_stable_picks_by_role(report: Dict[str, Any]) -> List[Dict[str, Any]
             if not champion:
                 continue
 
-            games = pick.get("games", 0)
-            wins = pick.get("wins", 0)
-            winrate = (wins / games * 100) if games > 0 else 0
+            # Get stats from stable_champions if available
+            stats = champ_stats.get(champion, {})
+            games = stats.get("games", 0)
+            winrate = stats.get("winrate", 0)
 
-            # Calculate KDA (using player averages if available)
-            kills = pick.get("kills", 0)
-            deaths = pick.get("deaths", 1)
-            assists = pick.get("assists", 0)
-            kda = (kills + assists) / max(deaths, 1)
+            # Fallback: estimate from pick share if no stable data
+            if games == 0:
+                total_games = report.get("opponent_overview", {}).get("games", 1)
+                games = int(pick.get("share", 0) * total_games)
+                winrate = 50.0  # Unknown, use neutral
+
+            # Simple KDA estimate (we don't have per-champion KDA)
+            kda = 2.5  # Placeholder since we don't have per-champion KDA data
 
             role_picks[role].append({
-                "championId": champion,
+                "championId": _normalize_champion_name(champion),
                 "role": role,
                 "gamesPlayed": games,
                 "winrate": round(winrate, 1),
-                "kda": round(kda, 1),
+                "kda": kda,
                 "isSignaturePick": pick.get("share", 0) >= 0.25,
             })
 
@@ -152,14 +226,16 @@ def _extract_draft_tendencies(report: Dict[str, Any]) -> Dict[str, Any]:
         if not champion:
             continue
 
-        games = pick.get("games", 0)
-        total_games = report.get("opponent_overview", {}).get("total", 1) or 1
-        pick_rate = (games / total_games * 100) if total_games > 0 else 0
+        # Priority picks have "share" which is already the pick rate as a decimal (0.0 to 1.0)
+        pick_rate = pick.get("share", 0) * 100  # Convert to percentage
+
+        # Ban rate - currently not tracked in scouting data
+        ban_rate = pick.get("ban_rate", 0)
 
         tendencies.append({
-            "championId": champion,
+            "championId": _normalize_champion_name(champion),
             "pickRate": round(pick_rate, 1),
-            "banRate": pick.get("ban_rate", 0),
+            "banRate": round(ban_rate, 1),
             "priority": i + 1,
         })
 
@@ -172,8 +248,16 @@ def _extract_scenarios(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     enhanced_scenarios = report.get("enhanced_scenarios", [])
 
     result = []
+    seen_ids = set()
+
     for i, scenario in enumerate(scenarios[:5]):
         scenario_id = scenario.get("scenario_id", i)
+
+        # Skip if we've already processed this scenario ID (deduplication)
+        if scenario_id in seen_ids:
+            continue
+        seen_ids.add(scenario_id)
+
         share = scenario.get("share", 0) * 100  # Convert to percentage
         winrate = scenario.get("winrate", 0) * 100
 
@@ -193,7 +277,8 @@ def _extract_scenarios(report: Dict[str, Any]) -> List[Dict[str, Any]]:
         targets = []
 
         if sig_picks:
-            targets = list(sig_picks.values())[:2]
+            # Normalize champion names for images
+            targets = [_normalize_champion_name(champ) for champ in list(sig_picks.values())[:2]]
         if "pick" in punish_plan.lower():
             action = "pick"
         elif "counter" in punish_plan.lower():
@@ -241,6 +326,18 @@ def _extract_player_analysis(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     per_player = report.get("per_player", {})
     enhanced_players = report.get("enhanced_players", {})
 
+    # Get stable champions data for winrate info
+    stable_champions = report.get("insights", {}).get("stable_champions", {}).get("opponent", [])
+    champ_stats = {}
+    for champ_data in stable_champions:
+        champ_name = champ_data.get("character")
+        if champ_name:
+            champ_stats[champ_name] = {
+                "games": champ_data.get("games", 0),
+                "wins": champ_data.get("wins", 0),
+                "winrate": champ_data.get("winrate", 0) * 100,
+            }
+
     result = []
     for player_id, player_data in per_player.items():
         # Get enhanced data if available
@@ -248,22 +345,36 @@ def _extract_player_analysis(report: Dict[str, Any]) -> List[Dict[str, Any]]:
         enhanced = enhanced_players.get(player_id, {}) if isinstance(enhanced_players, dict) else {}
 
         role = _get_role_standard(player_data.get("role"))
+
+        # Volatility is 0-1, but frontend expects percentage (0-100)
+        # Actually, frontend might expect 0-1 for normalized values. Let's keep it 0-1.
         entropy = player_data.get("volatility", 0.5)
 
         # Build champion pool
         comfort_picks = player_data.get("comfort_picks", [])
+        pick_distribution = player_data.get("pick_distribution", [])
+        total_games = report.get("opponent_overview", {}).get("games", 1)
+
         champion_pool = []
         for pick in comfort_picks[:5]:
             champion = pick.get("character") or pick.get("champion")
             if not champion:
                 continue
 
-            games = pick.get("games", 0)
-            wins = pick.get("wins", 0)
-            winrate = (wins / games * 100) if games > 0 else 0
+            # Get stats from stable_champions if available
+            stats = champ_stats.get(champion, {})
+            games = stats.get("games", 0)
+            winrate = stats.get("winrate", 0)
+
+            # Fallback: estimate from pick share
+            if games == 0:
+                games = int(pick.get("share", 0) * total_games)
+                # Find winrate from pick_distribution if available
+                dist_entry = next((p for p in pick_distribution if p.get("character") == champion), None)
+                winrate = 50.0  # Unknown, use neutral
 
             champion_pool.append({
-                "championId": champion,
+                "championId": _normalize_champion_name(champion),
                 "gamesPlayed": games,
                 "winrate": round(winrate, 1),
                 "isComfort": pick.get("share", 0) >= 0.2,
@@ -281,7 +392,7 @@ def _extract_player_analysis(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             "playerId": player_id,
             "nickname": player_data.get("name", player_id),
             "role": role,
-            "entropy": round(entropy, 2),
+            "entropy": round(entropy, 2),  # Keep as 0-1 normalized value
             "championPool": champion_pool,
             "tendencies": tendencies,
         })
@@ -325,8 +436,8 @@ def _extract_counter_picks(report: Dict[str, Any]) -> List[Dict[str, Any]]:
 
         if suggested:
             result.append({
-                "targetChampion": target,
-                "suggestedCounters": suggested[:3],
+                "targetChampion": _normalize_champion_name(target),
+                "suggestedCounters": [_normalize_champion_name(c) for c in suggested[:3]],
             })
 
     return result
@@ -362,7 +473,7 @@ def transform_report_to_frontend(
         raise
 
     # Calculate statistics
-    total_games = outcomes.get("total", 0)
+    total_games = outcomes.get("games", 0)  # Field is "games", not "total"
     wins = outcomes.get("wins", 0)
     avg_kills = outcomes.get("avg_kills", 0)
     avg_deaths = outcomes.get("avg_deaths", 0)
@@ -421,7 +532,7 @@ def transform_report_to_frontend(
             ban_plan = must_bans + [b for b in ban_plan if b not in must_bans]
 
         draft_plan = {
-            "banPlan": ban_plan[:5],
+            "banPlan": [_normalize_champion_name(c) for c in ban_plan[:5] if c],
             "draftPriority": _get_draft_priority(plan, randomness),
             "counterPicks": _extract_counter_picks(raw_report),
             "strategicNotes": [],

@@ -19,7 +19,7 @@ class GenerateReportRequest:
 
     team_name: str
     opponent_name: str
-    window_days: int = 180
+    window_days: int = 2000
     tournament_filter: str | None = None
 
 

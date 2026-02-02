@@ -39,7 +39,7 @@ class ScoutingReportRequest(BaseModel):
     team: str = Field(..., description="Your team name (e.g., 'Cloud9')")
     opponent: str = Field(..., description="Opponent team name (e.g., 'Team Liquid')")
     window_days: int = Field(
-        default=180,
+        default=2000,
         ge=1,
         le=3650,
         description="Number of days back to analyze (default: 180)"

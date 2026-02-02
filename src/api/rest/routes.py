@@ -35,7 +35,7 @@ class AnalysisRequest(BaseModel):
         min_length=1,
     )
     window_days: int = Field(
-        default=180,
+        default=2000,
         alias="windowDays",
         ge=1,
         le=3650,

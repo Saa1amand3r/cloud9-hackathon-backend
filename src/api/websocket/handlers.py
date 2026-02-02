@@ -76,7 +76,7 @@ async def handle_report_websocket(websocket: WebSocket) -> None:
         team_name = data.get("teamName")
         opponent_name = data.get("opponentName", team_name)  # Default to same for all-opponent analysis
         our_team = data.get("ourTeam", "Cloud9")
-        window_days = data.get("windowDays", 180)
+        window_days = data.get("windowDays", 2000)
         tournament_filter = data.get("tournamentFilter")
 
         if not team_name:
@@ -140,6 +140,12 @@ async def handle_report_websocket(websocket: WebSocket) -> None:
                 result.report,
                 result.metadata or {},
             )
+
+            # Debug: Log transformed report
+            logger.info(f"Transformed report keys: {list(frontend_report.keys())}")
+            logger.info(f"Team: {frontend_report.get('reportInfo', {}).get('teamName')}, Games: {frontend_report.get('reportInfo', {}).get('gamesAnalyzed')}")
+            logger.info(f"Scenarios: {len(frontend_report.get('scenarios', []))}, Players: {len(frontend_report.get('playerAnalysis', []))}")
+
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
