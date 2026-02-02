@@ -63,7 +63,18 @@ class GridGraphQLClient:
                 resp.raise_for_status()
                 body = resp.json()
                 if "errors" in body:
-                    raise RuntimeError("GraphQL errors: " + json.dumps(body["errors"], indent=2))
+                    errors = body["errors"]
+                    # Check for rate limit errors and retry
+                    is_rate_limit = any(
+                        e.get("extensions", {}).get("errorDetail") == "ENHANCE_YOUR_CALM"
+                        or e.get("extensions", {}).get("errorType") == "UNAVAILABLE"
+                        or "rate limit" in e.get("message", "").lower()
+                        for e in errors
+                    )
+                    if is_rate_limit and attempt < retries - 1:
+                        time.sleep(backoff_s * (attempt + 2))  # Longer backoff for rate limits
+                        continue
+                    raise RuntimeError("GraphQL errors: " + json.dumps(errors, indent=2))
                 if "data" not in body:
                     raise RuntimeError("Unexpected response shape: " + json.dumps(body, indent=2))
 
